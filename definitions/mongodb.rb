@@ -233,13 +233,28 @@ define :mongodb_instance,
 
   # replicaset
   if new_resource.is_replicaset && new_resource.auto_configure_replicaset
-    rs_nodes = search(
-      :node,
-      "mongodb_cluster_name:#{new_resource.cluster_name} AND "\
-      'mongodb_is_replicaset:true AND '\
-      "mongodb_config_mongod_replication_replSetName:#{new_resource.replicaset_name} AND "\
-      "chef_environment:#{node.chef_environment}"
-    )
+    rs_nodes = []
+    layer_ids = search("aws_opsworks_instance", "self:true").first[:layer_ids]
+    search("aws_opsworks_instance").each do |instance|
+      if instance[:status] == 'online'
+        instance[:layer_ids].each do |layer_id|
+          if layer_ids.include? layer_id
+            Chef::Log.info("#{instance[:hostname]} is part of the replicaset.")
+            # this is where I fake the object that is typically passed to configure_replicaset()
+            n = {
+                'name' => instance[:hostname],
+                'fqdn' => "#{instance[:hostname]}.icsops.net",
+                'hostname' => instance[:hostname],
+                'ipaddress' => instance[:private_ip],
+                'mongodb' => node[:mongodb]
+            }
+            a = OpenStruct.new n
+            rs_nodes << a
+            break
+          end
+        end
+      end
+    end
 
     ruby_block 'config_replicaset' do
       block do
